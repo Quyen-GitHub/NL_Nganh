@@ -1,0 +1,34 @@
+@media only screen and (max-width: 768px) {
+    header .navbar-brand {
+        padding-left: 1rem;
+    }
+    .section-1 .row .col-md-6 .panel {
+        position: initial;
+        width: initial;
+        height: initial;
+    }
+    .section-4 .carousel-item {
+        padding-left: 0.6rem;
+    }
+    footer .row .col-md-2 {
+        margin-top: 8vmin;
+    }
+}
+
+@media (max-width: 450px) {
+    .h-custom {
+        height: 100%;
+    }
+}
+
+@media only screen and (max-width: 375px) {
+    .section-4 .card {
+        width: 18em;
+    }
+}
+
+@media only screen and (max-width: 320px) {
+    .section-4 .carousel-inner {
+        margin-left: -4vmin;
+    }
+}
