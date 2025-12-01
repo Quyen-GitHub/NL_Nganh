@@ -3,48 +3,36 @@ session_start();
 include("../../../admincp/config/connection.php");
 include("config_vnpay.php"); // file bạn gửi ở trên
 
-$user_id = $_SESSION['user_id'] ?? null;
-$cart_id = $_SESSION['cart_id'] ?? null;
-$total_value = $_POST['total_value'] ?? 0;
+// Ép kiểu các biến quan trọng sang số nguyên để tăng cường bảo mật cơ bản
+$user_id = (int)($_SESSION['user_id'] ?? 0);
+$cart_id = (int)($_SESSION['cart_id'] ?? 0);
+$total_value = (float)($_POST['total_value'] ?? 0);
 
-if (!$user_id || !$cart_id) {
+if (!$user_id || !$cart_id || $total_value <= 0) {
+    // Nếu chưa đăng nhập, chưa có giỏ hàng, hoặc giá trị đơn hàng không hợp lệ
     header('Location: ../../../index.php?navigate=cart');
     exit;
 }
 
-// Nếu chọn COD
+// PHẦN 1: XỬ LÝ THANH TOÁN KHI NHẬN HÀNG (COD)
+
 if (isset($_POST['cod'])) {
     $order_code = 'COD' . time() . rand(100, 999);
 
-    // Lấy thông tin người nhận từ form
-    $receiver = mysqli_real_escape_string($mysqli, $_POST['receiver'] ?? '');
-    $phone = mysqli_real_escape_string($mysqli, $_POST['phone'] ?? '');
-    $address = mysqli_real_escape_string($mysqli, $_POST['address'] ?? '');
-    $notes = mysqli_real_escape_string($mysqli, $_POST['notes'] ?? '');
-
+    // 💡 SỬA LỖI 1: LẤY THÔNG TIN NGƯỜI NHẬN TỪ $_SESSION (NGUỒN ĐÚNG)
+    $receiver = mysqli_real_escape_string($mysqli, $_SESSION['order_receiver'] ?? '');
+    $phone = mysqli_real_escape_string($mysqli, $_SESSION['order_phone'] ?? '');
+    $address = mysqli_real_escape_string($mysqli, $_SESSION['order_address'] ?? '');
+    $notes = mysqli_real_escape_string($mysqli, $_SESSION['order_notes'] ?? '');
+    
+    // 1. INSERT VÀO TBLORDER (Đơn hàng chính)
     $sql_insert = "
         INSERT INTO tblorder (
-            user_id,
-            order_created_time,
-            order_address,
-            order_notes,
-            order_value,
-            order_phone,
-            order_status,
-            order_receiver,
-            order_payment,
-            order_code
+            user_id, order_created_time, order_address, order_notes, order_value,
+            order_phone, order_status, order_receiver, order_payment, order_code
         ) VALUES (
-            '$user_id',
-            NOW(),
-            '$address',
-            '$notes',
-            '$total_value',
-            '$phone',
-            0,
-            '$receiver',
-            'COD',
-            '$order_code'
+            '$user_id', NOW(), '$address', '$notes', '$total_value',
+            '$phone', 0, '$receiver', 'COD', '$order_code'
         )";
 
     if (!mysqli_query($mysqli, $sql_insert)) {
@@ -53,19 +41,32 @@ if (isset($_POST['cod'])) {
 
     $order_id = mysqli_insert_id($mysqli);
 
-    // --- Lưu chi tiết đơn hàng ---
-    $sql_cart = "SELECT * FROM tblcart_details WHERE cart_id = '$cart_id'";
-    $query_cart = mysqli_query($mysqli, $sql_cart);
-    while ($row = mysqli_fetch_assoc($query_cart)) {
-        $product_id = $row['product_id'];
-        $quantity = $row['quantity'];
-        $price = $row['price'];
+    // 2. INSERT VÀO TBLORDER_DETAILS (Chi tiết đơn hàng)
 
+    $sql_cart_details = "
+        SELECT cd.product_id, cd.quantity, p.product_price, p.product_discount
+        FROM tblcart_details cd
+        JOIN tblproduct p ON cd.product_id = p.product_id
+        WHERE cd.cart_id = '$cart_id'";
+        
+    $query_cart_details = mysqli_query($mysqli, $sql_cart_details);
+    
+    while ($row = mysqli_fetch_assoc($query_cart_details)) {
+        $product_id = (int)$row['product_id'];
+        $quantity = (int)$row['quantity'];
+        $unit_price = (float)$row['product_price'];
+        $discount = (int)$row['product_discount'];
+        
+        // TÍNH TOÁN GIÁ MUA SAU GIẢM GIÁ
+        $purchase_price = $unit_price * (100 - $discount) / 100;
+
+        // Chèn vào tblorder_details với giá mua chính xác
         mysqli_query($mysqli, "
             INSERT INTO tblorder_details (order_id, product_id, quantity, order_code, purchase_price)
-            VALUES ('$order_id', '$product_id', '$quantity', '$order_code', '$price')
+            VALUES ('$order_id', '$product_id', '$quantity', '$order_code', '$purchase_price')
         ");
 
+        // Cập nhật số lượng sản phẩm (logic này đã đúng)
         mysqli_query($mysqli, "
             UPDATE tblproduct
             SET product_quantity = product_quantity - $quantity
@@ -73,17 +74,24 @@ if (isset($_POST['cod'])) {
         ");
     }
 
-    // Xóa giỏ hàng
+    // 3. Xóa giỏ hàng và chuyển hướng
     mysqli_query($mysqli, "DELETE FROM tblcart_details WHERE cart_id = '$cart_id'");
-
+    
+    // Xóa các session thông tin người nhận không cần thiết
+    unset($_SESSION['order_receiver']);
+    unset($_SESSION['order_address']);
+    unset($_SESSION['order_phone']);
+    unset($_SESSION['order_notes']);
     unset($_SESSION['total_value']);
 
     header("Location: ../../../index.php?navigate=finish&cod_success=1&order_code=$order_code");
     exit;
 }
 
-// Nếu chọn VNPay
+// PHẦN 2: XỬ LÝ THANH TOÁN VNPAY
+
 if (isset($_POST['vnpay'])) {
+    // ... (Giữ nguyên logic VNPay của bạn) ...
     $vnp_TxnRef = time(); // Mã đơn hàng duy nhất
     $vnp_OrderInfo = "Thanh toan don hang LiteratureLounge";
     $vnp_OrderType = "billpayment";
@@ -137,7 +145,7 @@ if (isset($_POST['vnpay'])) {
 
     // Lưu đơn tạm với trạng thái "Processing"
     $sql_insert = "INSERT INTO tblorder (user_id, order_total, order_payment, order_status, vnpay_id, created_at)
-                   VALUES ('$user_id', '$total_value', 'VNPAY', 'Processing', '$vnp_TxnRef', NOW())";
+                    VALUES ('$user_id', '$total_value', 'VNPAY', 'Processing', '$vnp_TxnRef', NOW())";
     mysqli_query($mysqli, $sql_insert);
     $_SESSION['vnp_order_id'] = mysqli_insert_id($mysqli);
 

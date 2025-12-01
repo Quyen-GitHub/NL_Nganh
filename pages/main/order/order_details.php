@@ -1,6 +1,6 @@
 <?php
     $order_id = isset($_GET['id']) ? $_GET['id'] : '';
-    $sql_order = "SELECT order_receiver, order_phone, order_phone, order_created_time,
+    $sql_order = "SELECT order_receiver, order_phone, order_address, order_created_time,
         order_notes, order_code, order_payment, order_value, order_status 
         from tblorder where order_id = $order_id";
     $query_order = mysqli_query($mysqli, $sql_order);
@@ -21,7 +21,7 @@
             <td colspan="2">Phone number: <?= $row['order_phone']?></td>
         </tr>
         <tr>
-            <td colspan="2">Address: <?= $row['order_phone']?></td>
+            <td colspan="2">Address: <?= $row['order_address']?></td>
             <td colspan="2">Created time: <?= $row['order_created_time']?></td>
         </tr>
         <tr>
